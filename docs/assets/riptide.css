@@ -1,0 +1,331 @@
+/* ─── Riptide Brand Colors ─────────────────────────────────────────────────── */
+:root {
+  --riptide-rust:        #C75B39;
+  --riptide-rust-dark:   #9E3D20;
+  --riptide-rust-light:  #E07A58;
+  --riptide-rust-glow:   #C75B3922;
+  --riptide-black:       #0D0D0D;
+  --riptide-surface:     #141414;
+  --riptide-surface-2:   #1E1E1E;
+  --riptide-surface-3:   #262626;
+  --riptide-border:      #2E2E2E;
+  --riptide-white:       #F5F5F5;
+  --riptide-muted:       #888888;
+}
+
+/* ─── Override Material Theme ──────────────────────────────────────────────── */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:          var(--riptide-rust);
+  --md-primary-fg-color--light:   var(--riptide-rust-light);
+  --md-primary-fg-color--dark:    var(--riptide-rust-dark);
+  --md-primary-bg-color:          var(--riptide-white);
+  --md-accent-fg-color:           var(--riptide-rust-light);
+  --md-default-bg-color:          var(--riptide-black);
+  --md-default-fg-color:          var(--riptide-white);
+  --md-default-fg-color--light:   #CCCCCC;
+  --md-default-fg-color--lighter: var(--riptide-muted);
+  --md-code-bg-color:             var(--riptide-surface);
+  --md-code-fg-color:             #E0E0E0;
+  --md-typeset-a-color:           var(--riptide-rust-light);
+}
+
+/* ─── Header ───────────────────────────────────────────────────────────────── */
+.md-header {
+  background: var(--riptide-black) !important;
+  border-bottom: 1px solid var(--riptide-border);
+  box-shadow: 0 1px 20px rgba(199, 91, 57, 0.1);
+}
+
+.md-header__title {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.md-logo {
+  filter: brightness(1.1);
+}
+
+/* ─── Navigation ───────────────────────────────────────────────────────────── */
+.md-nav__title {
+  color: var(--riptide-rust) !important;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.md-nav__link--active {
+  color: var(--riptide-rust-light) !important;
+  font-weight: 600;
+}
+
+.md-nav__link:hover {
+  color: var(--riptide-rust-light) !important;
+}
+
+.md-sidebar {
+  background: var(--riptide-surface) !important;
+}
+
+/* ─── Tabs ─────────────────────────────────────────────────────────────────── */
+.md-tabs {
+  background: var(--riptide-surface) !important;
+  border-bottom: 1px solid var(--riptide-border);
+}
+
+.md-tabs__link--active {
+  border-bottom: 2px solid var(--riptide-rust) !important;
+  color: var(--riptide-rust-light) !important;
+}
+
+/* ─── Code Blocks ──────────────────────────────────────────────────────────── */
+.highlight {
+  background: var(--riptide-surface) !important;
+  border: 1px solid var(--riptide-border);
+  border-radius: 6px;
+}
+
+.highlight pre {
+  background: var(--riptide-surface) !important;
+}
+
+code {
+  background: var(--riptide-surface-2) !important;
+  color: var(--riptide-rust-light) !important;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 0.85em;
+}
+
+pre code {
+  color: #E0E0E0 !important;
+  background: transparent !important;
+  padding: 0;
+}
+
+/* ─── Admonitions ──────────────────────────────────────────────────────────── */
+.md-typeset .admonition,
+.md-typeset details {
+  border-left: 4px solid var(--riptide-rust) !important;
+  background: var(--riptide-surface) !important;
+}
+
+.md-typeset .admonition-title,
+.md-typeset summary {
+  background: var(--riptide-rust-glow) !important;
+  color: var(--riptide-rust-light) !important;
+}
+
+/* ─── Tables ───────────────────────────────────────────────────────────────── */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--riptide-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.md-typeset table:not([class]) th {
+  background: var(--riptide-surface-2) !important;
+  color: var(--riptide-rust-light) !important;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+.md-typeset table:not([class]) tr:hover {
+  background: var(--riptide-surface-2) !important;
+}
+
+/* ─── Hero Section (homepage) ──────────────────────────────────────────────── */
+.riptide-hero {
+  background: linear-gradient(135deg, var(--riptide-black) 0%, var(--riptide-surface-2) 100%);
+  border: 1px solid var(--riptide-border);
+  border-radius: 12px;
+  padding: 3rem 2rem;
+  text-align: center;
+  margin: 2rem 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.riptide-hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(ellipse at center, var(--riptide-rust-glow) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.riptide-hero h1 {
+  font-size: 3rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--riptide-white) !important;
+  margin: 0 0 0.5rem;
+  line-height: 1.1;
+  border: none !important;
+}
+
+.riptide-hero h1 span {
+  color: var(--riptide-rust) !important;
+}
+
+.riptide-hero .tagline {
+  font-size: 1.2rem;
+  color: var(--riptide-muted);
+  margin: 0 0 2rem;
+}
+
+.riptide-hero .badges {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
+}
+
+.riptide-hero .badge {
+  background: var(--riptide-surface-3);
+  border: 1px solid var(--riptide-border);
+  border-radius: 20px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--riptide-rust-light);
+}
+
+.riptide-hero .cta {
+  display: inline-flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.riptide-hero .btn-primary {
+  background: var(--riptide-rust);
+  color: white;
+  padding: 0.75rem 1.75rem;
+  border-radius: 6px;
+  font-weight: 600;
+  text-decoration: none !important;
+  transition: background 0.2s, transform 0.1s;
+  display: inline-block;
+}
+
+.riptide-hero .btn-primary:hover {
+  background: var(--riptide-rust-light);
+  transform: translateY(-1px);
+}
+
+.riptide-hero .btn-secondary {
+  background: transparent;
+  color: var(--riptide-white);
+  padding: 0.75rem 1.75rem;
+  border-radius: 6px;
+  font-weight: 600;
+  border: 1px solid var(--riptide-border);
+  text-decoration: none !important;
+  transition: border-color 0.2s;
+  display: inline-block;
+}
+
+.riptide-hero .btn-secondary:hover {
+  border-color: var(--riptide-rust);
+  color: var(--riptide-rust-light);
+}
+
+/* ─── Feature Grid ─────────────────────────────────────────────────────────── */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.feature-card {
+  background: var(--riptide-surface);
+  border: 1px solid var(--riptide-border);
+  border-radius: 8px;
+  padding: 1.5rem;
+  transition: border-color 0.2s, transform 0.1s;
+}
+
+.feature-card:hover {
+  border-color: var(--riptide-rust);
+  transform: translateY(-2px);
+}
+
+.feature-card .icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.feature-card h3 {
+  color: var(--riptide-white) !important;
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  border: none !important;
+}
+
+.feature-card p {
+  color: var(--riptide-muted);
+  font-size: 0.9rem;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ─── Benchmark Bar ────────────────────────────────────────────────────────── */
+.bench-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 0.5rem 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+}
+
+.bench-label {
+  width: 120px;
+  color: var(--riptide-muted);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.bench-bar-wrap {
+  flex: 1;
+  background: var(--riptide-surface-2);
+  border-radius: 3px;
+  height: 20px;
+  overflow: hidden;
+}
+
+.bench-bar {
+  height: 100%;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: width 0.8s ease;
+}
+
+.bench-bar.riptide { background: var(--riptide-rust); color: white; }
+.bench-bar.pytest  { background: var(--riptide-surface-3); color: var(--riptide-muted); }
+
+/* ─── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--riptide-surface); }
+::-webkit-scrollbar-thumb { background: var(--riptide-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--riptide-rust); }
+
+/* ─── Footer ───────────────────────────────────────────────────────────────── */
+.md-footer {
+  background: var(--riptide-surface) !important;
+  border-top: 1px solid var(--riptide-border);
+}
