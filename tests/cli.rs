@@ -140,6 +140,98 @@ fn editing_a_source_file_reruns_affected_tests() {
 }
 
 #[test]
+fn coverage_contexts_give_precise_impact() {
+    // Two independent modules + their own test files. After priming with
+    // --coverage (batched, dynamic contexts), editing ONE module must re-run only
+    // that module's test and skip the other — proving per-test deps were recorded.
+    let Some(py) = python_with_pytest() else {
+        eprintln!("skipping: no python with pytest available");
+        return;
+    };
+    let proj = TempDir::new().unwrap();
+    let root = proj.path();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("tests")).unwrap();
+    std::fs::write(root.join("src/__init__.py"), "").unwrap();
+    std::fs::write(root.join("tests/__init__.py"), "").unwrap();
+    std::fs::write(
+        root.join("conftest.py"),
+        "import sys, os\nsys.path.insert(0, os.path.dirname(__file__))\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("src/a.py"), "def fa():\n    return 1\n").unwrap();
+    std::fs::write(root.join("src/b.py"), "def fb():\n    return 2\n").unwrap();
+    std::fs::write(
+        root.join("tests/test_a.py"),
+        "from src.a import fa\ndef test_a():\n    assert fa() == 1\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("tests/test_b.py"),
+        "from src.b import fb\ndef test_b():\n    assert fb() == 2\n",
+    )
+    .unwrap();
+
+    riptide(root)
+        .args(["--python", &py, "--coverage", "tests/"])
+        .assert()
+        .success();
+
+    // Edit only src/a.py.
+    std::fs::write(root.join("src/a.py"), "def fa():\n    return 1  # edited\n").unwrap();
+
+    // Exactly one test (test_a) should run; test_b is skipped by impact analysis.
+    riptide(root)
+        .args(["--python", &py, "tests/"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("passed: 1"))
+        .stdout(predicate::str::contains("skipped (unchanged): 1"));
+}
+
+#[test]
+fn watch_reruns_impacted_tests_on_change() {
+    // Spawn `riptide watch`, let the warm pool prime, change a test file, and
+    // confirm a re-run cycle fires. Exercises the pool + notify watcher + watch
+    // command end-to-end. Uses generous sleeps for CI robustness.
+    let Some(py) = python_with_pytest() else {
+        eprintln!("skipping: no python with pytest available");
+        return;
+    };
+    let proj = TempDir::new().unwrap();
+    scaffold(proj.path());
+    let bin = assert_cmd::cargo::cargo_bin("riptide");
+    let log = proj.path().join("watch.out");
+    let mut child = Command::new(&bin)
+        .args(["--python", &py, "watch", "tests/"])
+        .current_dir(proj.path())
+        .stdout(std::fs::File::create(&log).unwrap())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+
+    std::thread::sleep(std::time::Duration::from_secs(7)); // initial run + 8-worker warmup
+    std::fs::write(
+        proj.path().join("tests/test_calc.py"),
+        "from src.calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n\n\ndef test_extra():\n    assert add(0, 0) == 0\n",
+    )
+    .unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(5)); // detect + warm re-run
+    let _ = child.kill();
+    let _ = child.wait();
+
+    let out = std::fs::read_to_string(&log).unwrap_or_default();
+    assert!(
+        out.contains("warm pool ready"),
+        "no initial warm run:\n{out}"
+    );
+    assert!(
+        out.contains("file(s) changed"),
+        "no re-run cycle fired:\n{out}"
+    );
+}
+
+#[test]
 fn failing_test_yields_exit_code_1() {
     let Some(py) = python_with_pytest() else {
         eprintln!("skipping: no python with pytest available");

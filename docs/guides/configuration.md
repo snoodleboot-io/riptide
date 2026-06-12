@@ -18,9 +18,10 @@ riptide is configured via command-line flags and optionally a `pyproject.toml` s
 
 A test that exceeds `--timeout` is killed and recorded as an error. By default riptide
 runs tests **batched** — one pytest process per worker — which avoids paying interpreter
-startup per test (see [ADR-009](../design/decisions.md)); `--isolate` forces the legacy
-one-process-per-test path, and `--coverage` always uses it to record precise per-test
-dependencies.
+startup per test (see [ADR-009](../design/decisions.md)). `--coverage` is also batched: it
+records per-test dependencies via coverage dynamic contexts, so it is precise *and* fast
+(see [ADR-011](../design/decisions.md)). `--isolate` forces the legacy one-process-per-test
+path for suites that genuinely need interpreter isolation.
 
 ## pyproject.toml
 

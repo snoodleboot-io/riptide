@@ -214,6 +214,75 @@ precise impact in watch (without a prior `--coverage` graph, a source change con
 re-runs all affected tests). Warm workers are a trusted-local-dev convenience — CI / untrusted
 code should use the isolated single-shot path.
 
+---
+
+## ADR-010: Stage C (embedded CPython subinterpreters) — rejected
+
+**Date:** 2026-06  
+**Status:** Rejected (do not revisit until the C-extension ecosystem is multi-interpreter-ready)
+
+**Decision:** Do **not** pursue ADR-009 stage C (embed CPython via PyO3 and run per-core
+PEP 684 own-GIL subinterpreters). The subprocess-based worker pool (stage B) remains the
+execution architecture.
+
+**What was tested (feasibility spike, Python 3.12.3, throwaway crate — riptide untouched):**
+1. **Embedding works.** PyO3 0.23 builds and runs pytest in-process here (after a no-sudo
+   `libpython3.12.so` symlink, since dev headers were absent).
+2. **PEP 684 parallelism is real.** Four own-GIL subinterpreters ran 4× CPU-bound work in
+   **1.20×** the single-interpreter time (vs **4.04×** for plain GIL-bound threads) — genuine
+   in-process parallelism.
+3. **Real workloads crash the process.** A subinterpreter imports pure-Python pytest fine,
+   but the moment it touches a single-phase-init C extension it **segfaults the whole
+   process**. Reproduced with the **stdlib** `_decimal` module:
+   `mpd_setminalloc ... a second time` → `munmap_chunk(): invalid pointer` → core dump.
+
+**Rationale (why rejected):**
+- Isolated subinterpreters (`check_multi_interp_extensions=1`) reject/corrupt single-phase C
+  extensions, which is still nearly the entire ecosystem (numpy, pandas, pydantic-core, lxml,
+  many sqlalchemy/db drivers) and even parts of the **stdlib**. riptide's core value is full
+  pytest/ecosystem compatibility; stage C trades that away.
+- The failure mode is *worse* than subprocesses: one incompatible `import` in one test takes
+  down **all** subinterpreters sharing the process, whereas the stage-B pool gives OS-level
+  isolation — a crashing test only loses (and respawns) its own worker.
+- Per-unit overhead is also high (one subinterpreter ran the same work ~2.2× slower than a
+  plain thread), so even the parallelism win is partially eroded.
+
+**Consequences:** The subprocess worker pool (stage B) is the practical performance ceiling.
+Revisit stage C only when multi-phase init (`Py_mod_multiple_interpreters`) is widespread
+across the C-extension ecosystem — years out. Further perf/precision work should go into the
+existing CPython-subprocess model: coverage-context impact (ADR-011 below), incremental
+hashing, and the stage-B robustness follow-ups.
+
+---
+
+## ADR-011: Per-test impact via coverage dynamic contexts (precise *and* batched)
+
+**Date:** 2026-06  
+**Status:** Accepted
+
+**Decision:** Build the per-test dependency graph from **coverage dynamic contexts** recorded
+during a single *batched* `coverage run`, instead of a separate `coverage run` per test.
+
+**Context:** Previously `--coverage` forced the isolated one-process-per-test path purely to
+attribute coverage to individual tests — precise but ~4–5× slower than batched. coverage.py's
+`dynamic_context = test_function` tags every measured line with the running test, so one
+batched run over many tests still yields per-test attribution.
+
+**How:** Each batch runs `coverage run --rcfile=<generated> --data-file=<per-batch> -m pytest …`
+with `dynamic_context = test_function`. After the run, `coverage combine` + `coverage json
+--show-contexts` gives, per file, which contexts touched it. Context names carry a
+package-dependent prefix (e.g. `pkg.tests.test_x.test_a`), so tests are matched on the stable
+**suffix** `{file_stem}.{func}` / `{file_stem}.{Class}.{method}` (last 2–3 dotted components)
+rather than a predicted full name. Suffix collisions (same-stem files) only *over*-include
+deps, which is safe (a test may re-run unnecessarily, never wrongly skip).
+
+**Consequences:** `--coverage` is now batched: measured ~4.5× faster (49-test fixture: 5.6s vs
+25.2s isolated) while producing a precise graph — editing one source module re-runs only its
+dependent tests. `--isolate` still forces the one-process-per-test path. A latent path
+normalization bug surfaced and was fixed: the file hasher now strips a leading `./` so change
+detection keys match the collector's and coverage's relative paths. Verified by unit tests
+(suffix mapping) and an integration test (edit-one-module → exactly its test re-runs).
+
 **Decision:** Stop paying CPython + pytest startup *per test*. Keep pytest as the
 execution engine (full fixture/plugin/assertion-rewrite compatibility) but change
 *how* riptide drives it, in three stages:

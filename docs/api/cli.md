@@ -27,7 +27,7 @@ riptide tests/test_auth.py::test_login  # single test (passed to pytest)
 | `--python BIN` | | `python3` | Python binary |
 | `--coverage` | `-c` | off | Enable per-test coverage |
 | `--all` | | off | Run all tests, skip impact analysis |
-| `--isolate` | | off | Run one pytest process per test (legacy isolation). Default is batched — one pytest process per worker — which is much faster cold (see [ADR-009](../design/decisions.md)). `--coverage` always uses the isolated path to record a precise per-test dependency graph |
+| `--isolate` | | off | Run one pytest process per test (legacy isolation). Default is batched — one pytest process per worker — which is much faster cold (see [ADR-009](../design/decisions.md)). `--coverage` is also batched and stays precise via coverage dynamic contexts ([ADR-011](../design/decisions.md)) |
 | `--pattern REGEX` | | `test_.*\.py\|.*_test\.py` | File discovery regex |
 | `--db PATH` | | `.riptide.db` | SQLite state database path |
 | `--timeout SECS` | | `300` | Per-test (or per-batch) wall-clock timeout in seconds; on expiry the process is killed and the affected test(s) recorded as an error |

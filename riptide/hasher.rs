@@ -36,7 +36,11 @@ pub fn hash_all_python_files(root: &Path) -> Result<HashMap<String, String>> {
     {
         let path = entry.path();
         let hash = hash_file(path)?;
-        let path_str = path.to_string_lossy().to_string();
+        // Normalize a leading "./" so paths from walking "." match the relative
+        // paths the collector and coverage report (e.g. "src/x.py"), which keeps
+        // change detection and the per-test dependency graph aligned.
+        let raw = path.to_string_lossy();
+        let path_str = raw.strip_prefix("./").unwrap_or(&raw).to_string();
         hashes.insert(path_str, hash);
     }
 

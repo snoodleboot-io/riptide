@@ -102,7 +102,9 @@ impl Runner {
         let total = tests.len();
         let counter = AtomicUsize::new(0);
 
-        if self.with_coverage || self.isolate {
+        // Isolated: one pytest process per test. Only used when the caller asks
+        // for it explicitly — coverage no longer forces isolation (see below).
+        if self.isolate {
             return Ok(pool.install(|| {
                 tests
                     .par_iter()
@@ -122,10 +124,15 @@ impl Runner {
             }));
         }
 
-        // Batched: split into one chunk per worker (each chunk = one pytest run).
+        // Batched: one pytest process per worker. With coverage, each batch runs
+        // under `coverage run` with a per-test dynamic context, so we still get a
+        // precise per-test dependency graph from a fast batched run (ADR-011).
+        if self.with_coverage {
+            let _ = self.write_coverage_rc();
+        }
         let chunk_size = tests.len().div_ceil(self.workers.max(1)).max(1);
         let chunks: Vec<&[TestItem]> = tests.chunks(chunk_size).collect();
-        let results: Vec<TestResult> = pool.install(|| {
+        let mut results: Vec<TestResult> = pool.install(|| {
             chunks
                 .par_iter()
                 .map(|chunk| self.run_chunk(chunk, total, &counter))
@@ -134,7 +141,48 @@ impl Runner {
                     acc
                 })
         });
+
+        // Attach per-test dependencies extracted from coverage contexts.
+        if self.with_coverage {
+            let deps = self.extract_context_deps(tests).unwrap_or_default();
+            for r in &mut results {
+                if let Some(files) = deps.get(&r.test_id) {
+                    r.covered_files = files.clone();
+                }
+            }
+        }
         Ok(results)
+    }
+
+    /// Write a coverage config enabling per-test dynamic contexts, so a single
+    /// batched `coverage run` records which lines each test touched.
+    fn write_coverage_rc(&self) -> Result<PathBuf> {
+        let rc = self.coverage_dir.join(".riptide.coveragerc");
+        std::fs::write(
+            &rc,
+            "[run]\ndynamic_context = test_function\nbranch = True\nsource = .\n",
+        )?;
+        Ok(rc)
+    }
+
+    /// Combine the per-batch coverage data and read `--show-contexts` JSON to build
+    /// a `test_id -> covered files` map. Context names are dotted module paths
+    /// (`tests.test_x.TestC.test_m`) that map deterministically back to node ids.
+    fn extract_context_deps(&self, tests: &[TestItem]) -> Result<HashMap<String, Vec<String>>> {
+        Command::new(&self.python_bin)
+            .args(["-m", "coverage", "combine", "--keep"])
+            .arg(&self.coverage_dir)
+            .output()?;
+        let json_path = self.coverage_dir.join("contexts.json");
+        let out = Command::new(&self.python_bin)
+            .args(["-m", "coverage", "json", "--show-contexts", "-q", "-o"])
+            .arg(&json_path)
+            .output()?;
+        if !out.status.success() || !json_path.exists() {
+            return Ok(HashMap::new());
+        }
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json_path)?)?;
+        Ok(contexts_to_deps(&v, tests))
     }
 
     /// Run one chunk of tests in a single pytest process and recover per-test
@@ -148,8 +196,17 @@ impl Runner {
     ) -> Vec<TestResult> {
         let node_ids: Vec<String> = chunk.iter().map(|t| t.pytest_nodeid()).collect();
         let out_path = unique_temp("batch.out");
+        // Per-batch coverage data file (kept for the combine/contexts pass).
+        let cov_data = if self.with_coverage {
+            Some(
+                self.coverage_dir
+                    .join(format!(".coverage.{}", short_hash(&node_ids.join("\n")))),
+            )
+        } else {
+            None
+        };
 
-        let statuses = match self.exec_chunk(&node_ids, &out_path) {
+        let statuses = match self.exec_chunk(&node_ids, &out_path, cov_data.as_deref()) {
             Ok(map) => map,
             Err(e) => {
                 eprintln!("  {} [BATCH ERROR] {}", "✗".red(), e);
@@ -186,20 +243,24 @@ impl Runner {
         &self,
         node_ids: &[String],
         out_path: &Path,
+        cov_data: Option<&Path>,
     ) -> Result<HashMap<String, TestStatus>> {
         let out_file = File::create(out_path)?;
         let mut cmd = Command::new(&self.python_bin);
+        // Optionally wrap pytest in `coverage run` with per-test dynamic contexts.
+        if let Some(data) = cov_data {
+            let rc = self.coverage_dir.join(".riptide.coveragerc");
+            cmd.arg("-m")
+                .arg("coverage")
+                .arg("run")
+                .arg("--rcfile")
+                .arg(&rc);
+            cmd.arg("--data-file").arg(data).arg("-m").arg("pytest");
+        } else {
+            cmd.arg("-m").arg("pytest");
+        }
         // -rA prints an outcome line per test; no -x so the whole batch runs.
-        cmd.args([
-            "-m",
-            "pytest",
-            "-rA",
-            "--tb=no",
-            "-q",
-            "-p",
-            "no:cacheprovider",
-            "--",
-        ]);
+        cmd.args(["-rA", "--tb=no", "-q", "-p", "no:cacheprovider", "--"]);
         cmd.args(node_ids);
         cmd.stdout(Stdio::from(out_file));
         cmd.stderr(Stdio::null());
@@ -341,6 +402,75 @@ fn read_capped(path: &Path) -> String {
     let mut s = String::from_utf8_lossy(&bytes[..MAX_CAPTURE_BYTES]).into_owned();
     s.push_str("\n[riptide] output truncated\n");
     s
+}
+
+/// Map a `coverage json --show-contexts` document to `test_id -> covered files`.
+/// Pure (no I/O) so the suffix-matching logic is directly unit-tested.
+fn contexts_to_deps(v: &serde_json::Value, tests: &[TestItem]) -> HashMap<String, Vec<String>> {
+    // context name -> files it executed lines in.
+    let mut ctx_files: HashMap<String, Vec<String>> = HashMap::new();
+    if let Some(files) = v["files"].as_object() {
+        for (fname, fdata) in files {
+            if let Some(contexts) = fdata["contexts"].as_object() {
+                for ctxs in contexts.values() {
+                    for c in ctxs.as_array().into_iter().flatten() {
+                        if let Some(c) = c.as_str() {
+                            if !c.is_empty() {
+                                ctx_files
+                                    .entry(c.to_string())
+                                    .or_default()
+                                    .push(fname.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Index by the last 2 and 3 dotted components, so a test's stable suffix
+    // (`stem.func` or `stem.Class.method`) matches regardless of the package
+    // prefix coverage prepends.
+    let mut by_tail: HashMap<String, Vec<String>> = HashMap::new();
+    for (ctx, files) in &ctx_files {
+        let parts: Vec<&str> = ctx.split('.').collect();
+        for n in [2usize, 3] {
+            if parts.len() >= n {
+                let tail = parts[parts.len() - n..].join(".");
+                by_tail
+                    .entry(tail)
+                    .or_default()
+                    .extend(files.iter().cloned());
+            }
+        }
+    }
+    for files in by_tail.values_mut() {
+        files.sort();
+        files.dedup();
+    }
+
+    let mut deps = HashMap::new();
+    for test in tests {
+        if let Some(files) = by_tail.get(&expected_suffix(test)) {
+            deps.insert(test.test_id.clone(), files.clone());
+        }
+    }
+    deps
+}
+
+/// The trailing components of the coverage dynamic-context name for a test:
+/// `{file_stem}.{func}` or `{file_stem}.{Class}.{method}`. Coverage prefixes the
+/// context with the full dotted module path (which varies with package layout,
+/// e.g. `pkg.tests.test_x.test_a`), so we match on this stable suffix instead of
+/// trying to predict the whole name.
+fn expected_suffix(item: &TestItem) -> String {
+    let stem = Path::new(&item.file_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&item.file_path);
+    match &item.class_name {
+        Some(c) => format!("{}.{}.{}", stem, c, item.function_name),
+        None => format!("{}.{}", stem, item.function_name),
+    }
 }
 
 /// Parse pytest's `-rA` summary into a node-id -> status map. Lines look like:
@@ -553,6 +683,61 @@ mod tests {
         assert_eq!(parse_status(Some(2), false), TestStatus::Error);
         // Killed by signal (timeout path passes None).
         assert_eq!(parse_status(None, false), TestStatus::Error);
+    }
+
+    #[test]
+    fn context_suffix_from_node_id() {
+        let func = TestItem {
+            test_id: "tests/test_add.py::test_add".into(),
+            file_path: "tests/test_add.py".into(),
+            function_name: "test_add".into(),
+            class_name: None,
+        };
+        // Stem-based suffix; matches `pkg.tests.test_add.test_add` regardless of prefix.
+        assert_eq!(expected_suffix(&func), "test_add.test_add");
+        let method = TestItem {
+            test_id: "tests/test_x.py::TestC::test_m".into(),
+            file_path: "tests/test_x.py".into(),
+            function_name: "test_m".into(),
+            class_name: Some("TestC".into()),
+        };
+        assert_eq!(expected_suffix(&method), "test_x.TestC.test_m");
+    }
+
+    #[test]
+    fn contexts_map_to_per_test_deps() {
+        // Synthetic `coverage json --show-contexts` with a package prefix on the
+        // context names (the case that broke naive full-name prediction).
+        let json = serde_json::json!({
+            "files": {
+                "src/a.py": { "contexts": { "1": ["", "pkg.tests.test_a.test_a"] } },
+                "tests/test_a.py": { "contexts": { "2": ["pkg.tests.test_a.test_a"] } },
+                "src/b.py": { "contexts": { "1": ["pkg.tests.test_b.TestB.test_b"] } },
+            }
+        });
+        let tests = vec![
+            TestItem {
+                test_id: "tests/test_a.py::test_a".into(),
+                file_path: "tests/test_a.py".into(),
+                function_name: "test_a".into(),
+                class_name: None,
+            },
+            TestItem {
+                test_id: "tests/test_b.py::TestB::test_b".into(),
+                file_path: "tests/test_b.py".into(),
+                function_name: "test_b".into(),
+                class_name: Some("TestB".into()),
+            },
+        ];
+        let deps = contexts_to_deps(&json, &tests);
+        assert_eq!(
+            deps.get("tests/test_a.py::test_a"),
+            Some(&vec!["src/a.py".to_string(), "tests/test_a.py".to_string()])
+        );
+        assert_eq!(
+            deps.get("tests/test_b.py::TestB::test_b"),
+            Some(&vec!["src/b.py".to_string()])
+        );
     }
 
     #[test]
